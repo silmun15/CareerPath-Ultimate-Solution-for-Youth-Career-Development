@@ -38,6 +38,10 @@ CareerPath is an interactive platform designed to guide students and job-seekers
 - **Gemini API**:  
   The core AI API used for advanced features such as job matching, skill gap analysis, AI-powered roadmap generation, and personalized course recommendations based on user profiles.
 
+#### **Rendering Method:**
+- **Client-Side Rendering (CSR)**:  
+  The CareerPath platform uses **CSR** to deliver a highly interactive experience. This method allows for **dynamic content rendering** directly in the user's browser without needing to reload the page every time new data is required. This improves performance and makes for a smoother, more responsive user experience, especially for features like job matching, course recommendations, and real-time AI-powered tools.
+
 #### **Development Tools:**
 - **VS Code**:  
   A lightweight code editor that provides the development team with powerful tools for writing and debugging code.
