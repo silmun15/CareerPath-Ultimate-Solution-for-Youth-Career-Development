@@ -7,16 +7,20 @@ import api from '../utils/api';
 export default function Dashboard() {
   const { user } = useAuth();
   const [stats, setStats] = useState({ jobs: 0, courses: 0, enrollments: 0 });
+  const [userSkills, setUserSkills] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const [jobsRes, coursesRes, enrollRes] = await Promise.all([
+        const [jobsRes, coursesRes, enrollRes, skillsRes] = await Promise.all([
           api.get('/jobs').catch(() => ({ data: [] })),
           api.get('/courses').catch(() => ({ data: [] })),
           user ? api.get(`/enrollments?user_id=${user.id}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+          user ? api.get(`/user-skills?user_id=${user.id}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
         ]);
+        const skills = Array.isArray(skillsRes.data) ? skillsRes.data : [];
+        setUserSkills(skills);
         setStats({
           jobs: Array.isArray(jobsRes.data) ? jobsRes.data.length : 0,
           courses: Array.isArray(coursesRes.data) ? coursesRes.data.length : 0,
@@ -29,13 +33,23 @@ export default function Dashboard() {
       }
     };
     fetchStats();
-  }, []);
+  }, [user]);
+
+  // Compute average proficiency level (same logic as Jobs page)
+  const proficiencyRank = { Beginner: 1, Intermediate: 2, Expert: 3, Professional: 4 };
+  const avgProficiency = userSkills.length > 0
+    ? userSkills.reduce((sum, s) => sum + (proficiencyRank[s.proficiency] || 1), 0) / userSkills.length
+    : 0;
+  const avgLevelLabel = avgProficiency >= 3.5 ? 'Professional'
+    : avgProficiency >= 2.5 ? 'Expert'
+    : avgProficiency >= 1.5 ? 'Intermediate'
+    : avgProficiency > 0 ? 'Beginner' : 'N/A';
 
   const dashCards = [
     { icon: Briefcase, label: 'Available Jobs', value: stats.jobs, gradient: 'from-[#7c3aed] to-[#6d28d9]', glow: '#7c3aed', link: '/jobs' },
     { icon: BookOpen, label: 'Courses', value: stats.courses, gradient: 'from-[#ec4899] to-[#db2777]', glow: '#ec4899', link: '/resources' },
     { icon: Award, label: 'My Enrollments', value: stats.enrollments, gradient: 'from-[#10b981] to-[#059669]', glow: '#10b981', link: '/resources' },
-    { icon: TrendingUp, label: 'Profile Match', value: '85%', gradient: 'from-[#3b82f6] to-[#2563eb]', glow: '#3b82f6', link: '/jobs' },
+    { icon: TrendingUp, label: 'Skill Level', value: avgLevelLabel, gradient: 'from-[#3b82f6] to-[#2563eb]', glow: '#3b82f6', link: '/profile' },
   ];
 
   const quickActions = [
@@ -91,20 +105,24 @@ export default function Dashboard() {
                 <h2 className="text-lg sm:text-xl font-bold text-white">{user?.name}</h2>
                 <p className="text-gray-500 text-sm">{user?.email}</p>
                 <div className="flex gap-2 mt-2">
-                  <span className="px-2.5 py-0.5 bg-emerald-500/15 text-emerald-400 text-xs font-medium rounded-full">Intermediate</span>
-                  <span className="px-2.5 py-0.5 bg-pink-500/15 text-pink-400 text-xs font-medium rounded-full">Full Stack</span>
+                  <span className="px-2.5 py-0.5 bg-emerald-500/15 text-emerald-400 text-xs font-medium rounded-full">{avgLevelLabel}</span>
+                  <span className="px-2.5 py-0.5 bg-pink-500/15 text-pink-400 text-xs font-medium rounded-full">{userSkills.length} skills</span>
                 </div>
               </div>
             </div>
             <div>
               <div className="text-xs text-gray-600 uppercase tracking-wider font-medium mb-2">Skills</div>
               <div className="flex flex-wrap gap-1.5">
-                {['React', 'Python', 'Java', 'JavaScript'].map((skill) => (
-                  <span key={skill} className="px-2.5 py-1 border border-[#2a2a5a] text-gray-400 text-xs rounded-full">
-                    {skill}
+                {userSkills.length > 0 ? userSkills.slice(0, 5).map((s) => (
+                  <span key={s.id} className="px-2.5 py-1 border border-[#2a2a5a] text-gray-400 text-xs rounded-full">
+                    {s.skill_name}
                   </span>
-                ))}
-                <span className="px-2.5 py-1 text-[#8b5cf6] text-xs">+more</span>
+                )) : (
+                  <span className="text-xs text-gray-600">No skills added yet</span>
+                )}
+                {userSkills.length > 5 && (
+                  <span className="px-2.5 py-1 text-[#8b5cf6] text-xs">+{userSkills.length - 5} more</span>
+                )}
               </div>
             </div>
           </div>
