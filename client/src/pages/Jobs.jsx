@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Search, MapPin, Building2, Briefcase, TrendingUp, Send } from 'lucide-react';
+import { Search, MapPin, Building2, Briefcase, TrendingUp, Send, X, DollarSign, Star, CheckCircle, Clock, Award, ChevronRight } from 'lucide-react';
 import api from '../utils/api';
 
 const skillColors = [
@@ -18,6 +18,7 @@ export default function Jobs() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [selectedJob, setSelectedJob] = useState(null);
 
   useEffect(() => {
     fetchJobs();
@@ -326,7 +327,10 @@ export default function Jobs() {
                         <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-linear-to-r from-[#7c3aed] to-[#ec4899] rounded-xl text-white text-sm font-semibold hover:shadow-lg hover:shadow-[#7c3aed]/20 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]">
                           <Send size={14} /> Apply Now
                         </button>
-                        <button className="px-5 py-2.5 border border-[#2a2a5a] rounded-xl text-gray-400 text-sm font-medium hover:border-[#7c3aed]/40 hover:text-white transition-all duration-200">
+                        <button
+                          onClick={() => setSelectedJob(job)}
+                          className="px-5 py-2.5 border border-[#2a2a5a] rounded-xl text-gray-400 text-sm font-medium hover:border-[#7c3aed]/40 hover:text-white transition-all duration-200 cursor-pointer"
+                        >
                           Details
                         </button>
                       </div>
@@ -361,6 +365,178 @@ export default function Jobs() {
           </div>
         )}
       </div>
+
+      {/* ======= Job Details Modal ======= */}
+      {selectedJob && (() => {
+        const d = getMatchDetails(selectedJob);
+        const sc = d.total;
+        const ml = getMatchLabel(sc);
+        const sColor = getScoreColor(sc);
+        const circ = 2 * Math.PI * 54;
+        const dash = (sc / 100) * circ;
+        const jSkills = Array.isArray(selectedJob.skills) ? selectedJob.skills : [];
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            onClick={() => setSelectedJob(null)}
+          >
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+
+            {/* Modal */}
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[#111128] border border-[#2a2a5a]/80 rounded-3xl shadow-2xl shadow-[#7c3aed]/10 animate-[modalIn_0.25s_ease-out]"
+            >
+              {/* Header gradient bar */}
+              <div className="h-1.5 bg-linear-to-r from-[#7c3aed] via-[#ec4899] to-[#8b5cf6] rounded-t-3xl" />
+
+              {/* Close button */}
+              <button
+                onClick={() => setSelectedJob(null)}
+                className="absolute top-5 right-5 w-9 h-9 flex items-center justify-center rounded-xl bg-[#1a1a3e] border border-[#2a2a5a] text-gray-400 hover:text-white hover:border-[#7c3aed]/50 transition-all duration-200 cursor-pointer z-10"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="p-6 sm:p-8">
+                {/* Top section: Score ring + Title */}
+                <div className="flex items-start gap-6 mb-6">
+                  <div className="relative w-28 h-28 shrink-0">
+                    <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
+                      <circle cx="60" cy="60" r="54" fill="none" stroke="#1a1a3e" strokeWidth="6" />
+                      <circle
+                        cx="60" cy="60" r="54" fill="none"
+                        stroke={sColor}
+                        strokeWidth="6"
+                        strokeDasharray={`${dash} ${circ}`}
+                        strokeLinecap="round"
+                        className="transition-all duration-700"
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-2xl font-extrabold text-white">{sc}%</span>
+                      <span className="text-[10px] text-gray-500 uppercase tracking-wider">Match</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0 pt-1">
+                    <h2 className="text-2xl font-extrabold text-white mb-1.5 leading-tight">{selectedJob.title}</h2>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-400 mb-3">
+                      <span className="flex items-center gap-1.5"><Building2 size={14} /> {selectedJob.company}</span>
+                      <span className="flex items-center gap-1.5"><MapPin size={14} /> {selectedJob.location}</span>
+                      <span className="flex items-center gap-1.5"><Briefcase size={14} /> {selectedJob.level}</span>
+                    </div>
+                    <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border ${sc >= 80 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : sc >= 60 ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' : 'bg-amber-500/15 text-amber-400 border-amber-500/30'}`}>
+                      {ml.text}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Salary */}
+                {(selectedJob.salary_min || selectedJob.salary_max) && (
+                  <div className="flex items-center gap-3 bg-emerald-500/8 border border-emerald-500/20 rounded-xl px-4 py-3 mb-6">
+                    <DollarSign size={18} className="text-emerald-400" />
+                    <div>
+                      <div className="text-xs text-gray-500 mb-0.5">Salary Range</div>
+                      <div className="text-base font-bold text-emerald-400">
+                        ৳{selectedJob.salary_min?.toLocaleString()} — ৳{selectedJob.salary_max?.toLocaleString()}
+                        <span className="text-emerald-400/60 font-normal text-sm"> / month</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Description */}
+                {selectedJob.description && (
+                  <div className="mb-6">
+                    <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-2 flex items-center gap-2">
+                      <ChevronRight size={14} className="text-[#7c3aed]" /> Job Description
+                    </h4>
+                    <p className="text-sm text-gray-400 leading-relaxed pl-5">{selectedJob.description}</p>
+                  </div>
+                )}
+
+                {/* Required Skills */}
+                <div className="mb-6">
+                  <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <Star size={14} className="text-[#ec4899]" /> Required Skills
+                    <span className="text-xs font-normal text-gray-500 ml-auto">{d.matchedSkills.length} of {jSkills.length} matched</span>
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {jSkills.map((skill, i) => {
+                      const matched = d.matchedSkills.includes(skill.toLowerCase());
+                      return (
+                        <span key={i} className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+                          matched
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : 'bg-[#1a1a3e] text-gray-500 border-[#2a2a5a]'
+                        }`}>
+                          {matched && <CheckCircle size={12} />} {skill}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Match Breakdown */}
+                <div className="bg-[#0a0a1a]/60 border border-[#2a2a5a]/40 rounded-xl p-5 mb-6">
+                  <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <Award size={14} className="text-[#8b5cf6]" /> Match Breakdown
+                  </h4>
+                  <div className="space-y-4">
+                    {[
+                      { label: 'Skills Match', value: d.skills, max: 60, color: '#7c3aed', desc: `${d.matchedSkills.length} of ${jSkills.length} required skills` },
+                      { label: 'Experience Level', value: d.experience, max: 20, color: '#ec4899', desc: d.experience >= 20 ? 'Meets required level' : d.experience >= 12 ? 'Close to required level' : 'Below required level' },
+                      { label: 'Career Track', value: d.track, max: 20, color: '#8b5cf6', desc: d.track >= 20 ? 'Same career track' : d.track >= 10 ? 'Related career track' : 'Different career track' },
+                    ].map((item) => (
+                      <div key={item.label}>
+                        <div className="flex justify-between items-center mb-1.5">
+                          <span className="text-sm text-gray-300 font-medium">{item.label}</span>
+                          <span className="text-sm font-bold" style={{ color: item.color }}>{item.value}/{item.max}</span>
+                        </div>
+                        <div className="h-2 bg-[#1a1a3e] rounded-full overflow-hidden mb-1">
+                          <div
+                            className="h-full rounded-full transition-all duration-700 ease-out"
+                            style={{ width: `${(item.value / item.max) * 100}%`, backgroundColor: item.color }}
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500">{item.desc}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Experience + Track info */}
+                <div className="grid grid-cols-2 gap-3 mb-6">
+                  <div className="bg-[#0a0a1a]/40 border border-[#2a2a5a]/40 rounded-xl p-4 text-center">
+                    <Clock size={20} className="mx-auto text-[#ec4899] mb-2" />
+                    <div className="text-xs text-gray-500 mb-1">Required Level</div>
+                    <div className="text-sm font-bold text-white">{selectedJob.level}</div>
+                  </div>
+                  <div className="bg-[#0a0a1a]/40 border border-[#2a2a5a]/40 rounded-xl p-4 text-center">
+                    <Award size={20} className="mx-auto text-[#8b5cf6] mb-2" />
+                    <div className="text-xs text-gray-500 mb-1">Your Level</div>
+                    <div className="text-sm font-bold text-white">{avgLevelLabel}</div>
+                  </div>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex gap-3">
+                  <button className="flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 bg-linear-to-r from-[#7c3aed] to-[#ec4899] rounded-xl text-white text-sm font-bold hover:shadow-lg hover:shadow-[#7c3aed]/25 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] cursor-pointer">
+                    <Send size={16} /> Apply Now
+                  </button>
+                  <button
+                    onClick={() => setSelectedJob(null)}
+                    className="px-6 py-3 border border-[#2a2a5a] rounded-xl text-gray-400 text-sm font-medium hover:border-[#7c3aed]/40 hover:text-white transition-all duration-200 cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
