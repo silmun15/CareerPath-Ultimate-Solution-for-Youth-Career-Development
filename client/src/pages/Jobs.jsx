@@ -1,289 +1,443 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Search, MapPin, Building2, Briefcase, TrendingUp, Send, 
-  X, DollarSign, Star, CheckCircle, Clock, Award, ChevronRight 
+import {
+  Search, MapPin, Building2, Briefcase, ChevronDown, ChevronUp,
+  Send, X, DollarSign, CheckCircle, TrendingUp, Award, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 
-// --- CONSTANTS & UTILS ---
-const SKILL_COLORS = [
-  'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
-  'bg-blue-500/15 text-blue-400 border-blue-500/25',
-  'bg-purple-500/15 text-purple-300 border-purple-500/25',
-  'bg-pink-500/15 text-pink-400 border-pink-500/25',
-];
-
+// ────────────────────────────────────────────────────────────
+// CONSTANTS
+// ────────────────────────────────────────────────────────────
+const JOB_LEVEL_RANK  = { 'Entry Level': 1, 'Mid Level': 2, Senior: 3 };
 const PROFICIENCY_RANK = { Beginner: 1, Intermediate: 2, Expert: 3, Professional: 4 };
-const JOB_LEVEL_RANK = { 'Entry Level': 1, 'Mid Level': 2, Senior: 3 };
+const ITEMS_PER_PAGE  = 6;
 
-/**
- * INTERMEDIATE CONCEPT: Logic Encapsulation
- * Keeping the "Math" separate from the "View"
- */
-const MatchEngine = {
-  calculate: (job, userSkills, avgProficiency) => {
-    if (!userSkills.length) return { total: 0, skills: 0, experience: 0, track: 0, matchedSkills: [] };
-
-    const jobSkills = (job.skills || []).map(s => s.toLowerCase());
-    const userSkillNames = userSkills.map(s => s.skill_name.toLowerCase());
-
-    // 1. Skill Match (60 pts)
-    const matchedSkills = jobSkills.filter(js => userSkillNames.includes(js));
-    const skillScore = jobSkills.length ? Math.round((matchedSkills.length / jobSkills.length) * 60) : 0;
-
-    // 2. Experience Match (20 pts)
-    const requiredLevel = JOB_LEVEL_RANK[job.level] || 1;
-    let expScore = avgProficiency >= requiredLevel ? 20 : (requiredLevel - avgProficiency <= 1 ? 12 : 5);
-
-    // 3. Track Match (20 pts)
-    const trackScore = matchedSkills.length > 0 ? (matchedSkills.length >= jobSkills.length * 0.5 ? 20 : 10) : 0;
-
-    return { total: skillScore + expScore + trackScore, skills: skillScore, experience: expScore, track: trackScore, matchedSkills };
-  },
-
-  getLabel: (score) => {
-    if (score >= 80) return { text: 'Excellent Match', color: 'text-emerald-400', hex: '#10b981' };
-    if (score >= 60) return { text: 'Good Match', color: 'text-purple-400', hex: '#7c3aed' };
-    return { text: 'Fair Match', color: 'text-amber-400', hex: '#f59e0b' };
-  }
+// ────────────────────────────────────────────────────────────
+// HELPERS
+// ────────────────────────────────────────────────────────────
+const getScoreColor = (score) => {
+  if (score >= 80) return { hex: '#10b981', text: 'text-emerald-400', label: 'Excellent Match' };
+  if (score >= 60) return { hex: '#7c3aed', text: 'text-purple-400',  label: 'Good Match' };
+  return              { hex: '#f59e0b', text: 'text-amber-400',   label: 'Fair Match' };
 };
 
-// --- SUB-COMPONENTS (For Readability) ---
+const getMatchDetails = (job, userSkills, avgProficiency) => {
+  if (!userSkills.length) return { total: 0, skills: 0, experience: 0, track: 0, matched: [] };
 
-const StatCard = ({ label, value, colorClass, bgClass }) => (
-  <div className={`${bgClass} border border-[#2a2a5a]/40 rounded-xl p-4 text-center`}>
-    <div className={`text-2xl font-extrabold ${colorClass}`}>{value}</div>
-    <div className="text-xs text-gray-500 mt-1">{label}</div>
+  const jobSkills     = (Array.isArray(job.skills) ? job.skills : []).map(s => s.toLowerCase());
+  const userNames     = userSkills.map(s => (s.skill_name || '').toLowerCase());
+  const matched       = jobSkills.filter(s => userNames.includes(s));
+  const skillScore    = jobSkills.length ? Math.round((matched.length / jobSkills.length) * 60) : 0;
+  const requiredLevel = JOB_LEVEL_RANK[job.level] || 1;
+  const expScore      = avgProficiency >= requiredLevel ? 20 : avgProficiency >= requiredLevel - 1 ? 12 : 5;
+  const trackScore    = matched.length >= jobSkills.length * 0.5 ? 20 : matched.length > 0 ? 10 : 0;
+
+  return { total: skillScore + expScore + trackScore, skills: skillScore, experience: expScore, track: trackScore, matched };
+};
+
+// ────────────────────────────────────────────────────────────
+// SUB-COMPONENTS
+// ────────────────────────────────────────────────────────────
+const StatCard = ({ label, value, colorClass, bgClass, icon: Icon }) => (
+  <div className={`${bgClass} border border-[#2a2a5a]/40 rounded-2xl p-5 text-center transition-transform duration-200 hover:scale-[1.03]`}>
+    {Icon && <Icon size={18} className={`mx-auto mb-1.5 ${colorClass} opacity-70`} />}
+    <div className={`text-3xl font-black ${colorClass}`}>{value}</div>
+    <div className="text-xs text-gray-500 mt-1 tracking-wide uppercase">{label}</div>
   </div>
 );
 
-const MatchRing = ({ score, size = 100, stroke = 5 }) => {
-  const { hex } = MatchEngine.getLabel(score);
-  const radius = (size / 2) - stroke;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (score / 100) * circumference;
-
+const MatchRing = ({ score, size = 96, stroke = 5 }) => {
+  const { hex } = getScoreColor(score);
+  const r = (size / 2) - stroke;
+  const C = 2 * Math.PI * r;
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       <svg className="w-full h-full -rotate-90" viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#1a1a3e" strokeWidth={stroke} />
-        <circle
-          cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={hex}
-          strokeWidth={stroke} strokeDasharray={circumference}
-          style={{ strokeDashoffset: offset, transition: 'stroke-dashoffset 0.8s ease-out' }}
-          strokeLinecap="round"
-        />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#1a1a3e" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={hex}
+          strokeWidth={stroke} strokeDasharray={C}
+          style={{ strokeDashoffset: C - (score / 100) * C, transition: 'stroke-dashoffset .8s ease-out' }}
+          strokeLinecap="round" />
       </svg>
-      <div className="absolute inset-0 flex items-center justify-center text-white font-bold">
-        {score}%
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-xl font-extrabold text-white">{score}%</span>
+        <span className="text-[9px] text-gray-500 uppercase tracking-widest">match</span>
       </div>
     </div>
   );
 };
 
-// --- MAIN COMPONENT ---
+const ProgressBar = ({ value, max, color }) => (
+  <div className="h-1.5 bg-[#1a1a3e] rounded-full overflow-hidden">
+    <div className="h-full rounded-full transition-all duration-700 ease-out"
+      style={{ width: `${(value / max) * 100}%`, backgroundColor: color }} />
+  </div>
+);
 
+const SkillTag = ({ name, matched }) => (
+  <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-full border transition-all ${
+    matched
+      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+      : 'bg-gray-500/10 text-gray-500 border-gray-500/20'
+  }`}>
+    {matched && <CheckCircle size={10} />}{name}
+  </span>
+);
+
+// ────────────────────────────────────────────────────────────
+// DETAIL MODAL
+// ────────────────────────────────────────────────────────────
+const JobModal = ({ job, details, onClose }) => {
+  if (!job) return null;
+  const { hex, label } = getScoreColor(details.total);
+  const skills = Array.isArray(job.skills) ? job.skills : [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+      <div onClick={e => e.stopPropagation()}
+        className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[#111128] border border-[#2a2a5a]/80 rounded-3xl shadow-2xl animate-[modalIn_.25s_ease-out]">
+        <div className="h-1.5 bg-gradient-to-r from-[#7c3aed] via-[#ec4899] to-[#8b5cf6] rounded-t-3xl" />
+        <button onClick={onClose}
+          className="absolute top-5 right-5 w-9 h-9 grid place-items-center rounded-xl bg-[#1a1a3e] border border-[#2a2a5a] text-gray-400 hover:text-white hover:border-[#7c3aed]/50 transition-all cursor-pointer z-10">
+          <X size={18} />
+        </button>
+
+        <div className="p-6 sm:p-8 space-y-6">
+          {/* Title row */}
+          <div className="flex items-start gap-5">
+            <MatchRing score={details.total} size={110} stroke={6} />
+            <div className="flex-1 min-w-0 pt-1">
+              <h2 className="text-2xl font-extrabold text-white leading-tight mb-1.5">{job.title}</h2>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-400 mb-3">
+                <span className="flex items-center gap-1.5"><Building2 size={14} />{job.company}</span>
+                <span className="flex items-center gap-1.5"><MapPin size={14} />{job.location}</span>
+                <span className="flex items-center gap-1.5"><Briefcase size={14} />{job.level}</span>
+              </div>
+              <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border ${
+                details.total >= 80 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                : details.total >= 60 ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                : 'bg-amber-500/15 text-amber-400 border-amber-500/30'}`}>
+                {label}
+              </span>
+            </div>
+          </div>
+
+          {/* Salary */}
+          {(job.salary_min || job.salary_max) && (
+            <div className="flex items-center gap-3 bg-emerald-500/8 border border-emerald-500/20 rounded-xl px-4 py-3">
+              <DollarSign size={18} className="text-emerald-400" />
+              <div>
+                <div className="text-xs text-gray-500 mb-0.5">Salary Range</div>
+                <div className="text-base font-bold text-emerald-400">
+                  ৳{job.salary_min?.toLocaleString()} — ৳{job.salary_max?.toLocaleString()}
+                  <span className="text-emerald-400/60 font-normal text-sm"> / month</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Description */}
+          {job.description && (
+            <div>
+              <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-2 flex items-center gap-2">
+                <ChevronRight size={14} className="text-[#7c3aed]" /> Description
+              </h4>
+              <p className="text-sm text-gray-400 leading-relaxed pl-5">{job.description}</p>
+            </div>
+          )}
+
+          {/* Skills */}
+          <div>
+            <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Award size={14} className="text-[#ec4899]" /> Required Skills
+              <span className="text-xs font-normal text-gray-500 ml-auto">{details.matched.length}/{skills.length} matched</span>
+            </h4>
+            <div className="flex flex-wrap gap-2">
+              {skills.map((s, i) => (
+                <SkillTag key={i} name={s} matched={details.matched.includes(s.toLowerCase())} />
+              ))}
+            </div>
+          </div>
+
+          {/* Match breakdown */}
+          <div className="bg-[#0a0a1a]/60 border border-[#2a2a5a]/40 rounded-xl p-5">
+            <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+              <TrendingUp size={14} className="text-[#8b5cf6]" /> Match Breakdown
+            </h4>
+            <div className="space-y-4">
+              {[
+                { label: 'Skills', v: details.skills, max: 60, color: '#7c3aed', desc: `${details.matched.length} of ${skills.length} required skills` },
+                { label: 'Experience', v: details.experience, max: 20, color: '#ec4899', desc: details.experience >= 20 ? 'Meets required level' : 'Below required level' },
+                { label: 'Career Track', v: details.track, max: 20, color: '#8b5cf6', desc: details.track >= 20 ? 'Same track' : details.track >= 10 ? 'Related track' : 'Different track' },
+              ].map(b => (
+                <div key={b.label}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-gray-300 font-medium">{b.label}</span>
+                    <span className="font-bold" style={{ color: b.color }}>{b.v}/{b.max}</span>
+                  </div>
+                  <ProgressBar value={b.v} max={b.max} color={b.color} />
+                  <p className="text-[11px] text-gray-500 mt-0.5">{b.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3">
+            <button className="flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-[#7c3aed] to-[#ec4899] rounded-xl text-white text-sm font-bold hover:shadow-lg hover:shadow-[#7c3aed]/25 transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer">
+              <Send size={16} /> Apply Now
+            </button>
+            <button onClick={onClose}
+              className="px-6 py-3 border border-[#2a2a5a] rounded-xl text-gray-400 text-sm font-medium hover:border-[#7c3aed]/40 hover:text-white transition-all cursor-pointer">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ────────────────────────────────────────────────────────────
 export default function Jobs() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // State
-  const [jobs, setJobs] = useState([]);
-  const [userSkills, setUserSkills] = useState([]);
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('all');
-  const [loading, setLoading] = useState(true);
+  const [jobs, setJobs]               = useState([]);
+  const [userSkills, setUserSkills]   = useState([]);
+  const [search, setSearch]           = useState('');
+  const [filter, setFilter]           = useState('all');
+  const [loading, setLoading]         = useState(true);
   const [selectedJob, setSelectedJob] = useState(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [page, setPage]               = useState(1);
 
-  // Initial Data Fetch
+  // ── Data fetch ──
   useEffect(() => {
-    const loadData = async () => {
+    (async () => {
       try {
-        const [jobsRes, skillsRes] = await Promise.all([
+        const [jRes, sRes] = await Promise.all([
           api.get('/jobs'),
-          user ? api.get(`/user-skills?user_id=${user.id}`) : Promise.resolve({ data: [] })
+          user ? api.get(`/user-skills?user_id=${user.id}`) : Promise.resolve({ data: [] }),
         ]);
-        setJobs(Array.isArray(jobsRes.data) ? jobsRes.data : []);
-        setUserSkills(Array.isArray(skillsRes.data) ? skillsRes.data : []);
-      } catch (e) {
-        console.error("Data fetch error", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadData();
+        setJobs(Array.isArray(jRes.data) ? jRes.data : []);
+        setUserSkills(Array.isArray(sRes.data) ? sRes.data : []);
+      } catch (e) { console.error('Fetch error', e); }
+      finally     { setLoading(false); }
+    })();
   }, [user]);
 
-  // Intermediate Concept: Derived State (Memoization)
+  // ── Derived data ──
   const avgProficiency = useMemo(() => {
     if (!userSkills.length) return 0;
-    return userSkills.reduce((sum, s) => sum + (PROFICIENCY_RANK[s.proficiency] || 1), 0) / userSkills.length;
+    return userSkills.reduce((s, u) => s + (PROFICIENCY_RANK[u.proficiency] || 1), 0) / userSkills.length;
   }, [userSkills]);
 
-  const avgLevelLabel = useMemo(() => {
-    if (avgProficiency >= 3.5) return 'Professional';
-    if (avgProficiency >= 2.5) return 'Expert';
-    if (avgProficiency >= 1.5) return 'Intermediate';
-    return avgProficiency > 0 ? 'Beginner' : 'N/A';
-  }, [avgProficiency]);
+  const allFiltered = useMemo(() => {
+    return jobs.filter(job => {
+      const score = getMatchDetails(job, userSkills, avgProficiency).total;
+      const q = search.toLowerCase();
+      const ok = (job.title || '').toLowerCase().includes(q) || (job.company || '').toLowerCase().includes(q);
+      if (!ok) return false;
+      if (filter === 'excellent') return score >= 80;
+      if (filter === 'good')      return score >= 60 && score < 80;
+      if (filter === 'fair')      return score < 60;
+      return true;
+    });
+  }, [jobs, search, filter, userSkills, avgProficiency]);
 
-  // Pre-calculating matches and filtering in one pass
-  const processedJobs = useMemo(() => {
-    return jobs
-      .map(job => ({
-        ...job,
-        matchDetails: MatchEngine.calculate(job, userSkills, avgProficiency)
-      }))
-      .filter(job => {
-        const query = search.toLowerCase();
-        const matchesSearch = job.title?.toLowerCase().includes(query) || job.company?.toLowerCase().includes(query);
-        const score = job.matchDetails.total;
+  const totalPages   = Math.max(1, Math.ceil(allFiltered.length / ITEMS_PER_PAGE));
+  const pageJobs     = allFiltered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
-        if (!matchesSearch) return false;
-        if (filter === 'excellent') return score >= 80;
-        if (filter === 'good') return score >= 60 && score < 80;
-        if (filter === 'fair') return score < 60;
-        return true;
-      });
-  }, [jobs, userSkills, avgProficiency, search, filter]);
-
-  // Stats calculation
   const stats = useMemo(() => ({
-    total: jobs.length,
-    excellent: jobs.filter(j => MatchEngine.calculate(j, userSkills, avgProficiency).total >= 80).length,
-    good: jobs.filter(j => {
-      const s = MatchEngine.calculate(j, userSkills, avgProficiency).total;
-      return s >= 60 && s < 80;
-    }).length
+    total:     jobs.length,
+    excellent: jobs.filter(j => getMatchDetails(j, userSkills, avgProficiency).total >= 80).length,
+    good:      jobs.filter(j => { const s = getMatchDetails(j, userSkills, avgProficiency).total; return s >= 60 && s < 80; }).length,
+    fair:      jobs.filter(j => getMatchDetails(j, userSkills, avgProficiency).total < 60).length,
   }), [jobs, userSkills, avgProficiency]);
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#0a0a1a] text-white">Loading...</div>;
+  const modalDetails = selectedJob ? getMatchDetails(selectedJob, userSkills, avgProficiency) : null;
 
+  // ── Loading state ──
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-[#0a0a1a]">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-10 h-10 border-2 border-[#7c3aed] border-t-transparent rounded-full animate-spin" />
+        <p className="text-gray-500 text-sm">Loading jobs…</p>
+      </div>
+    </div>
+  );
+
+  // ── Render ──
   return (
     <div className="min-h-screen pt-24 pb-16 bg-[#0a0a1a] text-gray-300">
-      <div className="max-w-6xl mx-auto px-6">
-        
-        {/* Header Section */}
+      <div className="max-w-[1140px] mx-auto px-6 sm:px-8">
+
+        {/* ── Header ── */}
         <div className="text-center mb-10">
-          <h1 className="text-4xl font-black text-white mb-3">
-            {user ? `Welcome, ${user.name}` : 'Explore Roles'}
+          <h1 className="text-3xl sm:text-4xl font-black text-white mb-2">
+            {user ? `Welcome back, ${user.name}` : 'Explore Opportunities'}
           </h1>
-          <div className="flex justify-center gap-3">
-            <span className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs">{avgLevelLabel} Level</span>
-            <span className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs">{userSkills.length} Skills Linked</span>
+          <p className="text-gray-500 text-base max-w-lg mx-auto">
+            {user ? 'Jobs ranked by how well they match your skills and experience.' : 'Browse open roles and find your next career move.'}
+          </p>
+        </div>
+
+        {/* ── Search + Filter toggle ── */}
+        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+          <div className="relative flex-1">
+            <Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600" />
+            <input type="text" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+              placeholder="Search by title or company…"
+              className="w-full pl-11 pr-4 py-3 bg-[#111128] border border-[#2a2a5a] rounded-xl text-white placeholder-gray-600 focus:border-[#7c3aed]/50 focus:ring-1 focus:ring-[#7c3aed]/20 transition-all" />
           </div>
+          <button onClick={() => setFiltersOpen(!filtersOpen)}
+            className="inline-flex items-center gap-2 px-5 py-3 bg-[#111128] border border-[#2a2a5a] rounded-xl text-gray-300 hover:border-[#7c3aed]/40 transition-all cursor-pointer">
+            Filters {filtersOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          </button>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-col md:flex-row gap-4 mb-8">
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-            <input 
-              className="w-full bg-[#111128] border border-white/10 rounded-xl py-3 pl-12 pr-4 focus:border-purple-500 outline-none transition-all"
-              placeholder="Search by title or company..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+        {/* ── Filter panel ── */}
+        {filtersOpen && (
+          <div className="bg-[#111128]/80 border border-[#2a2a5a]/60 rounded-2xl p-5 mb-6 animate-[fadeIn_.2s_ease-out]">
+            <label className="block text-xs text-gray-500 uppercase tracking-wider mb-2">Match Level</label>
+            <select value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}
+              className="w-full sm:w-56 bg-[#0a0a1a] border border-[#2a2a5a] rounded-xl px-4 py-2.5 text-gray-300 focus:border-[#7c3aed]/50 transition-all appearance-none cursor-pointer">
+              <option value="all">All Matches</option>
+              <option value="excellent">Excellent (80 %+)</option>
+              <option value="good">Good (60 – 79 %)</option>
+              <option value="fair">Fair (&lt; 60 %)</option>
+            </select>
           </div>
-          <select 
-            className="bg-[#111128] border border-white/10 rounded-xl px-4 py-3 outline-none"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          >
-            <option value="all">All Match Levels</option>
-            <option value="excellent">Excellent Matches (80%+)</option>
-            <option value="good">Good Matches (60-79%)</option>
-            <option value="fair">Fair Matches (Under 60%)</option>
-          </select>
-        </div>
+        )}
 
-        {/* Stats Bar */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <StatCard label="Total Jobs" value={stats.total} colorClass="text-white" bgClass="bg-white/5" />
-          <StatCard label="Excellent" value={stats.excellent} colorClass="text-emerald-400" bgClass="bg-emerald-500/10" />
-          <StatCard label="Good" value={stats.good} colorClass="text-purple-400" bgClass="bg-purple-500/10" />
-          <StatCard label="Remaining" value={stats.total - stats.excellent - stats.good} colorClass="text-amber-400" bgClass="bg-amber-500/10" />
-        </div>
+        {/* ── Stats ── */}
+        {user && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+            <StatCard label="Total Jobs" value={stats.total}     colorClass="text-[#8b5cf6]"    bgClass="bg-[#7c3aed]/10" icon={Briefcase} />
+            <StatCard label="Excellent"  value={stats.excellent}  colorClass="text-emerald-400"  bgClass="bg-emerald-500/10" icon={Award} />
+            <StatCard label="Good"       value={stats.good}       colorClass="text-purple-400"   bgClass="bg-purple-500/10" icon={TrendingUp} />
+            <StatCard label="Fair"       value={stats.fair}       colorClass="text-amber-400"    bgClass="bg-amber-500/10" icon={Search} />
+          </div>
+        )}
 
-        {/* Job List */}
-        <div className="space-y-4">
-          {processedJobs.map((job) => {
-            const { total, matchedSkills } = job.matchDetails;
-            const label = MatchEngine.getLabel(total);
+        {/* ── Job cards ── */}
+        {pageJobs.length === 0 ? (
+          <div className="text-center py-24">
+            <div className="w-16 h-16 bg-[#111128] rounded-2xl grid place-items-center mx-auto mb-4">
+              <Briefcase size={28} className="text-gray-600" />
+            </div>
+            <p className="text-gray-400 text-lg font-medium">No jobs found</p>
+            <p className="text-gray-600 text-sm mt-1">Try adjusting your search or filters</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {pageJobs.map((job, idx) => {
+              const d = getMatchDetails(job, userSkills, avgProficiency);
+              const { label, text } = getScoreColor(d.total);
+              const skills = Array.isArray(job.skills) ? job.skills : [];
+              return (
+                <div key={job.id}
+                  className="group bg-[#111128]/80 border border-[#2a2a5a]/60 rounded-2xl p-5 sm:p-6 hover:border-[#7c3aed]/25 transition-all duration-300 hover:shadow-lg hover:shadow-[#7c3aed]/5"
+                  style={{ animationDelay: `${idx * .04}s` }}>
+                  <div className="flex flex-col lg:flex-row gap-5 lg:gap-6">
 
-            return (
-              <div 
-                key={job.id}
-                className="group bg-[#111128] border border-white/5 p-6 rounded-2xl hover:border-purple-500/30 transition-all cursor-pointer"
-                onClick={() => setSelectedJob(job)}
-              >
-                <div className="flex flex-col lg:flex-row items-center gap-6">
-                  <MatchRing score={total} size={80} />
-                  
-                  <div className="flex-1 text-center lg:text-left">
-                    <h3 className="text-xl font-bold text-white group-hover:text-purple-400 transition-colors">{job.title}</h3>
-                    <div className="flex flex-wrap justify-center lg:justify-start gap-4 text-sm text-gray-500 mt-2">
-                      <span className="flex items-center gap-1"><Building2 size={14}/> {job.company}</span>
-                      <span className="flex items-center gap-1"><MapPin size={14}/> {job.location}</span>
-                      <span className="flex items-center gap-1"><Briefcase size={14}/> {job.level}</span>
+                    {/* Ring */}
+                    {user && (
+                      <div className="flex lg:flex-col items-center gap-3 lg:justify-center lg:min-w-[110px]">
+                        <MatchRing score={d.total} />
+                        <span className={`text-xs font-semibold ${text} whitespace-nowrap`}>{label}</span>
+                      </div>
+                    )}
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg sm:text-xl font-bold text-white mb-2 group-hover:text-[#8b5cf6] transition-colors">{job.title}</h3>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-gray-500 mb-3">
+                        <span className="flex items-center gap-1.5"><Building2 size={14} />{job.company}</span>
+                        <span className="flex items-center gap-1.5"><MapPin size={14} />{job.location}</span>
+                        <span className="flex items-center gap-1.5"><Briefcase size={14} />{job.level}</span>
+                      </div>
+
+                      {job.description && <p className="text-sm text-gray-400 leading-relaxed mb-3 line-clamp-2">{job.description}</p>}
+
+                      {(job.salary_min || job.salary_max) && (
+                        <p className="text-sm font-semibold text-emerald-400 mb-3">
+                          ৳{job.salary_min?.toLocaleString()} — ৳{job.salary_max?.toLocaleString()}/mo
+                        </p>
+                      )}
+
+                      {/* Skill tags */}
+                      <div className="flex flex-wrap gap-1.5 mb-4">
+                        {skills.slice(0, 6).map((s, i) => (
+                          <SkillTag key={i} name={s} matched={user && d.matched.includes(s.toLowerCase())} />
+                        ))}
+                        {skills.length > 6 && <span className="text-xs text-gray-600 self-center">+{skills.length - 6} more</span>}
+                      </div>
+
+                      <div className="flex gap-2.5">
+                        <button onClick={() => { if (!user) navigate('/login'); }}
+                          className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#7c3aed] to-[#ec4899] rounded-xl text-white text-sm font-semibold hover:shadow-lg hover:shadow-[#7c3aed]/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer">
+                          <Send size={14} /> Apply Now
+                        </button>
+                        <button onClick={() => setSelectedJob(job)}
+                          className="px-5 py-2.5 border border-[#2a2a5a] rounded-xl text-gray-400 text-sm font-medium hover:border-[#7c3aed]/40 hover:text-white transition-all cursor-pointer">
+                          Details
+                        </button>
+                      </div>
                     </div>
-                    
-                    <div className="flex flex-wrap justify-center lg:justify-start gap-2 mt-4">
-                      {job.skills?.slice(0, 4).map(s => (
-                        <span key={s} className={`text-[10px] px-2 py-1 rounded-md border ${matchedSkills.includes(s.toLowerCase()) ? 'border-emerald-500/50 text-emerald-400' : 'border-white/10 text-gray-500'}`}>
-                          {s}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
 
-                  <div className="flex flex-col items-center gap-2">
-                    <span className={`text-xs font-bold uppercase ${label.color}`}>{label.text}</span>
-                    <button className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-lg font-bold transition-all active:scale-95">
-                      Apply
-                    </button>
+                    {/* Breakdown sidebar */}
+                    {user && (
+                      <div className="lg:min-w-[180px] bg-[#0a0a1a]/50 border border-[#2a2a5a]/40 rounded-xl p-4">
+                        <h4 className="text-[10px] font-bold text-white uppercase tracking-widest mb-3">Breakdown</h4>
+                        {[
+                          { l: 'Skills',     v: d.skills,     m: 60, c: '#7c3aed' },
+                          { l: 'Experience', v: d.experience, m: 20, c: '#ec4899' },
+                          { l: 'Track',      v: d.track,      m: 20, c: '#8b5cf6' },
+                        ].map(b => (
+                          <div key={b.l} className="mb-2.5 last:mb-0">
+                            <div className="flex justify-between text-[11px] mb-1">
+                              <span className="text-gray-500">{b.l}</span>
+                              <span className="text-gray-300 font-medium">{b.v}/{b.m}</span>
+                            </div>
+                            <ProgressBar value={b.v} max={b.m} color={b.c} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+              );
+            })}
+          </div>
+        )}
 
-      {/* Modal - Simplified logic for one file */}
-      {selectedJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => setSelectedJob(null)}>
-          <div className="bg-[#111128] border border-white/10 w-full max-w-2xl rounded-3xl p-8 overflow-y-auto max-h-[90vh]" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-start mb-6">
-              <MatchRing score={selectedJob.matchDetails.total} size={110} stroke={6} />
-              <button onClick={() => setSelectedJob(null)} className="p-2 hover:bg-white/5 rounded-full"><X/></button>
-            </div>
-            
-            <h2 className="text-3xl font-black text-white mb-2">{selectedJob.title}</h2>
-            <p className="text-purple-400 font-bold mb-6">{selectedJob.company} • {selectedJob.location}</p>
-            
-            <div className="grid grid-cols-2 gap-4 mb-8">
-              <div className="bg-white/5 p-4 rounded-xl border border-white/5">
-                <div className="text-gray-500 text-xs uppercase mb-1">Salary</div>
-                <div className="text-emerald-400 font-bold">৳{selectedJob.salary_min} - ৳{selectedJob.salary_max}</div>
-              </div>
-              <div className="bg-white/5 p-4 rounded-xl border border-white/5">
-                <div className="text-gray-500 text-xs uppercase mb-1">Role Type</div>
-                <div className="text-white font-bold">{selectedJob.level}</div>
-              </div>
-            </div>
-
-            <h4 className="font-bold text-white mb-3">Job Description</h4>
-            <p className="text-sm leading-relaxed text-gray-400 mb-8">{selectedJob.description}</p>
-
-            <button className="w-full bg-gradient-to-r from-purple-600 to-pink-600 py-4 rounded-xl font-bold text-white hover:opacity-90 transition-all">
-              Submit Application
+        {/* ── Pagination ── */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-3 mt-10">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+              className="inline-flex items-center gap-1 px-4 py-2 bg-[#111128] border border-[#2a2a5a] rounded-xl text-sm text-gray-400 hover:text-white hover:border-[#7c3aed]/40 transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
+              <ChevronLeft size={15} /> Prev
+            </button>
+            <span className="text-sm text-gray-500">
+              Page <span className="text-white font-semibold">{page}</span> of <span className="text-white font-semibold">{totalPages}</span>
+            </span>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+              className="inline-flex items-center gap-1 px-4 py-2 bg-[#111128] border border-[#2a2a5a] rounded-xl text-sm text-gray-400 hover:text-white hover:border-[#7c3aed]/40 transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
+              Next <ChevronRight size={15} />
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* ── Detail Modal ── */}
+      <JobModal job={selectedJob} details={modalDetails} onClose={() => setSelectedJob(null)} />
     </div>
   );
 }
