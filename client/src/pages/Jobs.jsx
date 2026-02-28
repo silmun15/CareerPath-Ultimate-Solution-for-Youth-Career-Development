@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, MapPin, Building2, Briefcase, ChevronDown, ChevronUp,
   Send, X, DollarSign, CheckCircle, TrendingUp, Award, ChevronLeft, ChevronRight,
+  ArrowUpDown, ArrowUp, AlertCircle, Clock,
 } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
@@ -13,6 +14,20 @@ import { useAuth } from '../context/AuthContext';
 const JOB_LEVEL_RANK  = { 'Entry Level': 1, 'Mid Level': 2, Senior: 3 };
 const PROFICIENCY_RANK = { Beginner: 1, Intermediate: 2, Expert: 3, Professional: 4 };
 const ITEMS_PER_PAGE  = 6;
+const SORT_OPTIONS    = [
+  { value: 'match-desc', label: 'Best Match First',    icon: Award },
+  { value: 'match-asc',  label: 'Lowest Match First',  icon: TrendingUp },
+  { value: 'salary-desc',label: 'Highest Salary First', icon: DollarSign },
+  { value: 'salary-asc', label: 'Lowest Salary First',  icon: DollarSign },
+  { value: 'title-asc',  label: 'Title A → Z',          icon: ArrowUpDown },
+  { value: 'title-desc', label: 'Title Z → A',          icon: ArrowUpDown },
+];
+
+const LEVEL_STYLES = {
+  'Entry Level': 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+  'Mid Level':   'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  Senior:        'bg-rose-500/15 text-rose-400 border-rose-500/30',
+};
 
 // ────────────────────────────────────────────────────────────
 // HELPERS
@@ -84,6 +99,39 @@ const SkillTag = ({ name, matched }) => (
   }`}>
     {matched && <CheckCircle size={10} />}{name}
   </span>
+);
+
+const LevelBadge = ({ level }) => (
+  <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-full border ${
+    LEVEL_STYLES[level] || 'bg-gray-500/15 text-gray-400 border-gray-500/30'
+  }`}>
+    <Briefcase size={10} />{level}
+  </span>
+);
+
+const SkillPromptBanner = ({ onNavigate }) => (
+  <div className="bg-gradient-to-r from-[#7c3aed]/10 to-[#ec4899]/10 border border-[#7c3aed]/30 rounded-2xl p-5 mb-8 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+    <div className="w-10 h-10 bg-[#7c3aed]/20 rounded-xl grid place-items-center shrink-0">
+      <AlertCircle size={20} className="text-[#7c3aed]" />
+    </div>
+    <div className="flex-1 min-w-0">
+      <h4 className="text-sm font-bold text-white mb-0.5">Add your skills for personalized matches</h4>
+      <p className="text-xs text-gray-500">Set up your skill profile so we can rank jobs by how well they fit you.</p>
+    </div>
+    <button onClick={onNavigate}
+      className="px-4 py-2 bg-[#7c3aed] rounded-xl text-white text-sm font-semibold hover:bg-[#6d28d9] transition-colors cursor-pointer whitespace-nowrap">
+      Add Skills
+    </button>
+  </div>
+);
+
+const ScrollToTopButton = ({ visible, onClick }) => (
+  <button onClick={onClick}
+    className={`fixed bottom-8 right-8 z-40 w-11 h-11 grid place-items-center rounded-full bg-[#7c3aed] text-white shadow-lg shadow-[#7c3aed]/25 transition-all duration-300 cursor-pointer hover:bg-[#6d28d9] hover:scale-110 ${
+      visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
+    }`}>
+    <ArrowUp size={18} />
+  </button>
 );
 
 // ────────────────────────────────────────────────────────────
@@ -216,6 +264,9 @@ export default function Jobs() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage]               = useState(1);
+  const [sortBy, setSortBy]           = useState('match-desc');
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const containerRef = useRef(null);
 
   // ── Data fetch ──
   useEffect(() => {
@@ -232,6 +283,26 @@ export default function Jobs() {
     })();
   }, [user]);
 
+  // ── Escape key to close modal ──
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && selectedJob) setSelectedJob(null);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedJob]);
+
+  // ── Scroll-to-top visibility ──
+  useEffect(() => {
+    const onScroll = () => setShowScrollTop(window.scrollY > 400);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const scrollToTop = useCallback(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
   // ── Derived data ──
   const avgProficiency = useMemo(() => {
     if (!userSkills.length) return 0;
@@ -239,7 +310,7 @@ export default function Jobs() {
   }, [userSkills]);
 
   const allFiltered = useMemo(() => {
-    return jobs.filter(job => {
+    const filtered = jobs.filter(job => {
       const score = getMatchDetails(job, userSkills, avgProficiency).total;
       const q = search.toLowerCase();
       const ok = (job.title || '').toLowerCase().includes(q) || (job.company || '').toLowerCase().includes(q);
@@ -249,7 +320,22 @@ export default function Jobs() {
       if (filter === 'fair')      return score < 60;
       return true;
     });
-  }, [jobs, search, filter, userSkills, avgProficiency]);
+
+    // ── Sorting ──
+    return [...filtered].sort((a, b) => {
+      const scoreA = getMatchDetails(a, userSkills, avgProficiency).total;
+      const scoreB = getMatchDetails(b, userSkills, avgProficiency).total;
+      switch (sortBy) {
+        case 'match-desc':  return scoreB - scoreA;
+        case 'match-asc':   return scoreA - scoreB;
+        case 'salary-desc': return (b.salary_max || 0) - (a.salary_max || 0);
+        case 'salary-asc':  return (a.salary_min || 0) - (b.salary_min || 0);
+        case 'title-asc':   return (a.title || '').localeCompare(b.title || '');
+        case 'title-desc':  return (b.title || '').localeCompare(a.title || '');
+        default: return 0;
+      }
+    });
+  }, [jobs, search, filter, sortBy, userSkills, avgProficiency]);
 
   const totalPages   = Math.max(1, Math.ceil(allFiltered.length / ITEMS_PER_PAGE));
   const pageJobs     = allFiltered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
@@ -275,7 +361,7 @@ export default function Jobs() {
 
   // ── Render ──
   return (
-    <div className="min-h-screen pt-24 pb-16 bg-[#0a0a1a] text-gray-300">
+    <div ref={containerRef} className="min-h-screen pt-24 pb-16 bg-[#0a0a1a] text-gray-300">
       <div className="max-w-[1140px] mx-auto px-6 sm:px-8">
 
         {/* ── Header ── */}
@@ -302,18 +388,36 @@ export default function Jobs() {
           </button>
         </div>
 
-        {/* ── Filter panel ── */}
+        {/* ── Filter & Sort panel ── */}
         {filtersOpen && (
           <div className="bg-[#111128]/80 border border-[#2a2a5a]/60 rounded-2xl p-5 mb-6 animate-[fadeIn_.2s_ease-out]">
-            <label className="block text-xs text-gray-500 uppercase tracking-wider mb-2">Match Level</label>
-            <select value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}
-              className="w-full sm:w-56 bg-[#0a0a1a] border border-[#2a2a5a] rounded-xl px-4 py-2.5 text-gray-300 focus:border-[#7c3aed]/50 transition-all appearance-none cursor-pointer">
-              <option value="all">All Matches</option>
-              <option value="excellent">Excellent (80 %+)</option>
-              <option value="good">Good (60 – 79 %)</option>
-              <option value="fair">Fair (&lt; 60 %)</option>
-            </select>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div>
+                <label className="block text-xs text-gray-500 uppercase tracking-wider mb-2">Match Level</label>
+                <select value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}
+                  className="w-full sm:w-56 bg-[#0a0a1a] border border-[#2a2a5a] rounded-xl px-4 py-2.5 text-gray-300 focus:border-[#7c3aed]/50 transition-all appearance-none cursor-pointer">
+                  <option value="all">All Matches</option>
+                  <option value="excellent">Excellent (80 %+)</option>
+                  <option value="good">Good (60 – 79 %)</option>
+                  <option value="fair">Fair (&lt; 60 %)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 uppercase tracking-wider mb-2">Sort By</label>
+                <select value={sortBy} onChange={e => { setSortBy(e.target.value); setPage(1); }}
+                  className="w-full sm:w-56 bg-[#0a0a1a] border border-[#2a2a5a] rounded-xl px-4 py-2.5 text-gray-300 focus:border-[#7c3aed]/50 transition-all appearance-none cursor-pointer">
+                  {SORT_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
+        )}
+
+        {/* ── Skill prompt banner ── */}
+        {user && userSkills.length === 0 && (
+          <SkillPromptBanner onNavigate={() => navigate('/profile')} />
         )}
 
         {/* ── Stats ── */}
@@ -334,6 +438,12 @@ export default function Jobs() {
             </div>
             <p className="text-gray-400 text-lg font-medium">No jobs found</p>
             <p className="text-gray-600 text-sm mt-1">Try adjusting your search or filters</p>
+            {(search || filter !== 'all') && (
+              <button onClick={() => { setSearch(''); setFilter('all'); setPage(1); }}
+                className="mt-4 px-5 py-2 bg-[#7c3aed]/20 border border-[#7c3aed]/30 rounded-xl text-[#8b5cf6] text-sm font-medium hover:bg-[#7c3aed]/30 transition-all cursor-pointer">
+                Clear Filters
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
@@ -358,10 +468,15 @@ export default function Jobs() {
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <h3 className="text-lg sm:text-xl font-bold text-white mb-2 group-hover:text-[#8b5cf6] transition-colors">{job.title}</h3>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-gray-500 mb-3">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-gray-500 mb-3">
                         <span className="flex items-center gap-1.5"><Building2 size={14} />{job.company}</span>
                         <span className="flex items-center gap-1.5"><MapPin size={14} />{job.location}</span>
-                        <span className="flex items-center gap-1.5"><Briefcase size={14} />{job.level}</span>
+                        <LevelBadge level={job.level} />
+                        {job.type && (
+                          <span className="flex items-center gap-1 px-2 py-0.5 bg-[#1a1a3e] rounded-md text-[11px] text-gray-400 border border-[#2a2a5a]/40">
+                            <Clock size={10} />{job.type}
+                          </span>
+                        )}
                       </div>
 
                       {job.description && <p className="text-sm text-gray-400 leading-relaxed mb-3 line-clamp-2">{job.description}</p>}
@@ -418,16 +533,38 @@ export default function Jobs() {
           </div>
         )}
 
+        {/* ── Results summary ── */}
+        {allFiltered.length > 0 && (
+          <div className="flex items-center justify-between mt-8 mb-2 px-1">
+            <p className="text-xs text-gray-600">
+              Showing <span className="text-gray-400 font-medium">{(page - 1) * ITEMS_PER_PAGE + 1}–{Math.min(page * ITEMS_PER_PAGE, allFiltered.length)}</span> of{' '}
+              <span className="text-gray-400 font-medium">{allFiltered.length}</span> results
+            </p>
+            <p className="text-xs text-gray-600">
+              Sorted by <span className="text-[#8b5cf6] font-medium">{SORT_OPTIONS.find(o => o.value === sortBy)?.label}</span>
+            </p>
+          </div>
+        )}
+
         {/* ── Pagination ── */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-3 mt-10">
+          <div className="flex items-center justify-center gap-2 mt-8">
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
               className="inline-flex items-center gap-1 px-4 py-2 bg-[#111128] border border-[#2a2a5a] rounded-xl text-sm text-gray-400 hover:text-white hover:border-[#7c3aed]/40 transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
               <ChevronLeft size={15} /> Prev
             </button>
-            <span className="text-sm text-gray-500">
-              Page <span className="text-white font-semibold">{page}</span> of <span className="text-white font-semibold">{totalPages}</span>
-            </span>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <button key={p} onClick={() => setPage(p)}
+                  className={`w-9 h-9 grid place-items-center rounded-lg text-sm font-medium transition-all cursor-pointer ${
+                    p === page
+                      ? 'bg-[#7c3aed] text-white shadow-md shadow-[#7c3aed]/25'
+                      : 'bg-[#111128] border border-[#2a2a5a] text-gray-500 hover:text-white hover:border-[#7c3aed]/40'
+                  }`}>
+                  {p}
+                </button>
+              ))}
+            </div>
             <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
               className="inline-flex items-center gap-1 px-4 py-2 bg-[#111128] border border-[#2a2a5a] rounded-xl text-sm text-gray-400 hover:text-white hover:border-[#7c3aed]/40 transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
               Next <ChevronRight size={15} />
@@ -438,6 +575,9 @@ export default function Jobs() {
 
       {/* ── Detail Modal ── */}
       <JobModal job={selectedJob} details={modalDetails} onClose={() => setSelectedJob(null)} />
+
+      {/* ── Scroll to top ── */}
+      <ScrollToTopButton visible={showScrollTop} onClick={scrollToTop} />
     </div>
   );
 }
