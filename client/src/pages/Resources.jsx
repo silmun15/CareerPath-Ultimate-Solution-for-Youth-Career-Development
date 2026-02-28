@@ -33,6 +33,7 @@ export default function Resources() {
         <h1 className="text-3xl font-extrabold text-black mb-3">Learning Resources</h1>
       </div>
 
+
       {/* Search */}
       <div className="max-w-2xl mx-auto mb-8">
         <div className="relative">
