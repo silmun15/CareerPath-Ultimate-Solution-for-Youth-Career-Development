@@ -1,36 +1,41 @@
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
-import { Briefcase, BookOpen, TrendingUp, Target, Award, ArrowRight, Users, Star, MapPin, Building2, Send, Zap, BarChart3, Clock, AlertTriangle, Lightbulb } from 'lucide-react';
+import { Briefcase, BookOpen, TrendingUp, Target, Award, ArrowRight, Users, Star, MapPin, Building2, Send, Zap, BarChart3, Clock, AlertTriangle, Lightbulb, CheckCircle, FileText } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const [stats, setStats] = useState({ jobs: 0, courses: 0, enrollments: 0 });
+  const [stats, setStats] = useState({ jobs: 0, courses: 0, enrollments: 0, applications: 0 });
   const [allJobs, setAllJobs] = useState([]);
   const [allCourses, setAllCourses] = useState([]);
   const [userSkills, setUserSkills] = useState([]);
+  const [appliedJobs, setAppliedJobs] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const [jobsRes, coursesRes, enrollRes, skillsRes] = await Promise.all([
+        const [jobsRes, coursesRes, enrollRes, skillsRes, appsRes] = await Promise.all([
           api.get('/jobs').catch(() => ({ data: [] })),
           api.get('/courses').catch(() => ({ data: [] })),
           user ? api.get(`/enrollments?user_id=${user.id}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
           user ? api.get(`/user-skills?user_id=${user.id}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+          user ? api.get(`/job-applications?user_id=${user.id}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
         ]);
         const skills = Array.isArray(skillsRes.data) ? skillsRes.data : [];
         const jobsList = Array.isArray(jobsRes.data) ? jobsRes.data : [];
         const coursesList = Array.isArray(coursesRes.data) ? coursesRes.data : [];
+        const appsList = Array.isArray(appsRes.data) ? appsRes.data : [];
         setUserSkills(skills);
         setAllJobs(jobsList);
         setAllCourses(coursesList);
+        setAppliedJobs(appsList);
         setStats({
           jobs: Array.isArray(jobsRes.data) ? jobsRes.data.length : 0,
           courses: Array.isArray(coursesRes.data) ? coursesRes.data.length : 0,
           enrollments: Array.isArray(enrollRes.data) ? enrollRes.data.length : 0,
+          applications: appsList.length,
         });
       } catch (e) {
         console.error(e);
@@ -83,6 +88,7 @@ export default function Dashboard() {
     { icon: Briefcase, label: 'Available Jobs', value: stats.jobs, gradient: 'from-[#7c3aed] to-[#6d28d9]', glow: '#7c3aed', link: '/jobs' },
     { icon: BookOpen, label: 'Courses', value: stats.courses, gradient: 'from-[#ec4899] to-[#db2777]', glow: '#ec4899', link: '/resources' },
     { icon: Award, label: 'My Enrollments', value: stats.enrollments, gradient: 'from-[#10b981] to-[#059669]', glow: '#10b981', link: '/resources' },
+    { icon: FileText, label: 'Applications', value: stats.applications, gradient: 'from-[#f59e0b] to-[#d97706]', glow: '#f59e0b', link: '/jobs' },
     { icon: TrendingUp, label: 'Skill Level', value: avgLevelLabel, gradient: 'from-[#3b82f6] to-[#2563eb]', glow: '#3b82f6', link: '/profile' },
   ];
 
@@ -142,7 +148,7 @@ export default function Dashboard() {
         </div>
 
         {/* ───── Stats Grid ───── */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 mb-10">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-5 mb-10">
           {dashCards.map((card, i) => (
             <Link key={card.label} to={card.link} className="group" style={{ animationDelay: `${i * 80}ms` }}>
               <div className="relative h-full bg-[#111128]/60 backdrop-blur-sm border border-[#2a2a5a]/40 rounded-2xl p-6 sm:p-7 hover:border-[#2a2a5a]/80 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl overflow-hidden">
@@ -345,6 +351,62 @@ export default function Dashboard() {
         )}
 
         {/* ───── Skill Gap Analysis & Course Recommendations ───── */}
+
+        {/* ───── My Job Applications ───── */}
+        {user && appliedJobs.length > 0 && (
+          <div className="mb-10">
+            <div className="mb-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-[#f59e0b]/15 flex items-center justify-center">
+                  <FileText size={16} className="text-[#f59e0b]" />
+                </div>
+                <h2 className="text-base font-semibold text-white uppercase tracking-wide">My Job Applications</h2>
+              </div>
+              <Link to="/jobs" className="text-sm text-[#8b5cf6] hover:text-[#a78bfa] transition-colors font-medium">
+                Browse jobs &rarr;
+              </Link>
+            </div>
+            <div className="space-y-3">
+              {appliedJobs.map((app) => {
+                const job = app.job;
+                if (!job) return null;
+                const statusColors = {
+                  Pending: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+                  Reviewed: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+                  Shortlisted: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+                  Accepted: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+                  Rejected: 'bg-red-500/15 text-red-400 border-red-500/30',
+                };
+                const statusStyle = statusColors[app.status] || statusColors.Pending;
+                return (
+                  <div key={app.id} className="bg-[#111128]/60 backdrop-blur-sm border border-[#2a2a5a]/40 rounded-2xl p-5 hover:border-[#2a2a5a]/80 transition-all duration-300">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-4">
+                        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#ec4899] flex items-center justify-center shrink-0">
+                          <Briefcase size={20} className="text-white" />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="text-base font-bold text-white">{job.title}</h3>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 mt-1">
+                            <span className="flex items-center gap-1"><Building2 size={12} /> {job.company}</span>
+                            <span className="flex items-center gap-1"><MapPin size={12} /> {job.location}</span>
+                            <span className="flex items-center gap-1"><Clock size={12} /> Applied {new Date(app.applied_at || app.created_at).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${statusStyle}`}>
+                          <CheckCircle size={12} /> {app.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {user && userSkills.length > 0 && allJobs.length > 0 && (() => {
           // Collect all required skills from jobs, count frequency
           const skillFrequency = {};

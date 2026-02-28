@@ -47,7 +47,8 @@ INSERT INTO migrations (migration, batch) VALUES
 ('2024_01_01_000001_create_jobs_table', 1),
 ('2024_01_01_000002_create_courses_table', 1),
 ('2024_01_01_000003_create_enrollments_table', 1),
-('2024_01_01_000004_create_contacts_table', 1);
+('2024_01_01_000004_create_contacts_table', 1),
+('2024_01_01_000005_create_job_applications_table', 1);
 
 -- ============================================================
 -- 1. users
