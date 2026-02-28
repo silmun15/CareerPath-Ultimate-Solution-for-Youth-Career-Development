@@ -7,6 +7,7 @@ use App\Http\Controllers\CourseController;
 use App\Http\Controllers\EnrollmentController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\UserSkillController;
+use App\Http\Controllers\JobApplicationController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -45,6 +46,11 @@ Route::get('/user-skills', [UserSkillController::class, 'index']);
 Route::post('/user-skills', [UserSkillController::class, 'store']);
 Route::put('/user-skills/{id}', [UserSkillController::class, 'update']);
 Route::delete('/user-skills/{id}', [UserSkillController::class, 'destroy']);
+
+// Job Applications
+Route::get('/job-applications', [JobApplicationController::class, 'index']);
+Route::post('/job-applications', [JobApplicationController::class, 'store']);
+Route::delete('/job-applications/{id}', [JobApplicationController::class, 'destroy']);
 
 // Contacts
 Route::get('/contacts', [ContactController::class, 'index']);
