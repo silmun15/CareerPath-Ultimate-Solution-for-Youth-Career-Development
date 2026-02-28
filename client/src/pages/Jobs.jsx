@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Search, MapPin, Building2, Briefcase, TrendingUp, Send, X, DollarSign, Star, CheckCircle, Clock, Award, ChevronRight } from 'lucide-react';
+import { Search, MapPin, Building2, Briefcase, TrendingUp, Send, X, DollarSign, Star, CheckCircle, Clock, Award, ChevronRight, Loader2 } from 'lucide-react';
 import api from '../utils/api';
 
 const skillColors = [
@@ -21,10 +21,15 @@ export default function Jobs() {
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState(null);
+  const [appliedJobs, setAppliedJobs] = useState(new Set());
+  const [applyingTo, setApplyingTo] = useState(null);
 
   useEffect(() => {
     fetchJobs();
-    if (user) fetchUserSkills();
+    if (user) {
+      fetchUserSkills();
+      fetchAppliedJobs();
+    }
   }, [user]);
 
   const fetchJobs = async () => {
@@ -46,6 +51,35 @@ export default function Jobs() {
     } catch (e) {
       console.error('Failed to fetch user skills:', e);
       setUserSkills([]);
+    }
+  };
+
+  const fetchAppliedJobs = async () => {
+    try {
+      const res = await api.get(`/job-applications?user_id=${user.id}`);
+      const ids = Array.isArray(res.data) ? res.data.map(a => a.job_id) : [];
+      setAppliedJobs(new Set(ids));
+    } catch (e) {
+      console.error('Failed to fetch applications:', e);
+    }
+  };
+
+  const applyToJob = async (jobId) => {
+    if (!user) { navigate('/login'); return; }
+    if (appliedJobs.has(jobId)) return;
+    setApplyingTo(jobId);
+    try {
+      await api.post('/job-applications', { user_id: user.id, job_id: jobId });
+      setAppliedJobs(prev => new Set([...prev, jobId]));
+    } catch (e) {
+      if (e.response?.status === 409) {
+        setAppliedJobs(prev => new Set([...prev, jobId]));
+      } else {
+        console.error('Failed to apply:', e);
+        alert('Failed to apply. Please try again.');
+      }
+    } finally {
+      setApplyingTo(null);
     }
   };
 
@@ -335,10 +369,23 @@ export default function Jobs() {
 
                       <div className="flex gap-2.5">
                         <button
-                          onClick={() => { if (!user) navigate('/login'); }}
-                          className="inline-flex items-center gap-2 px-5 py-2.5 bg-linear-to-r from-[#7c3aed] to-[#ec4899] rounded-xl text-white text-sm font-semibold hover:shadow-lg hover:shadow-[#7c3aed]/20 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                          onClick={() => applyToJob(job.id)}
+                          disabled={appliedJobs.has(job.id) || applyingTo === job.id}
+                          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all duration-200 cursor-pointer ${
+                            appliedJobs.has(job.id)
+                              ? 'bg-emerald-600/80 cursor-default'
+                              : applyingTo === job.id
+                                ? 'bg-gray-600 cursor-wait'
+                                : 'bg-linear-to-r from-[#7c3aed] to-[#ec4899] hover:shadow-lg hover:shadow-[#7c3aed]/20 hover:scale-[1.02] active:scale-[0.98]'
+                          }`}
                         >
-                          <Send size={14} /> Apply Now
+                          {appliedJobs.has(job.id) ? (
+                            <><CheckCircle size={14} /> Applied</>
+                          ) : applyingTo === job.id ? (
+                            <><Loader2 size={14} className="animate-spin" /> Applying...</>
+                          ) : (
+                            <><Send size={14} /> Apply Now</>
+                          )}
                         </button>
                         <button
                           onClick={() => setSelectedJob(job)}
@@ -537,8 +584,24 @@ export default function Jobs() {
 
                 {/* Action buttons */}
                 <div className="flex gap-3">
-                  <button className="flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 bg-linear-to-r from-[#7c3aed] to-[#ec4899] rounded-xl text-white text-sm font-bold hover:shadow-lg hover:shadow-[#7c3aed]/25 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] cursor-pointer">
-                    <Send size={16} /> Apply Now
+                  <button
+                    onClick={() => applyToJob(selectedJob.id)}
+                    disabled={appliedJobs.has(selectedJob.id) || applyingTo === selectedJob.id}
+                    className={`flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-white text-sm font-bold transition-all duration-200 cursor-pointer ${
+                      appliedJobs.has(selectedJob.id)
+                        ? 'bg-emerald-600/80 cursor-default'
+                        : applyingTo === selectedJob.id
+                          ? 'bg-gray-600 cursor-wait'
+                          : 'bg-linear-to-r from-[#7c3aed] to-[#ec4899] hover:shadow-lg hover:shadow-[#7c3aed]/25 hover:scale-[1.01] active:scale-[0.99]'
+                    }`}
+                  >
+                    {appliedJobs.has(selectedJob.id) ? (
+                      <><CheckCircle size={16} /> Applied</>
+                    ) : applyingTo === selectedJob.id ? (
+                      <><Loader2 size={16} className="animate-spin" /> Applying...</>
+                    ) : (
+                      <><Send size={16} /> Apply Now</>
+                    )}
                   </button>
                   <button
                     onClick={() => setSelectedJob(null)}
