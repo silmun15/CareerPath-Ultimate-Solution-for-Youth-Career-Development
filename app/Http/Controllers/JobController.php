@@ -11,8 +11,8 @@ class JobController extends Controller
     {
         $query = Job::query();
 
-        // Apply search filter if provided
-        if ($search = $request->search) {
+        if ($request->has('search')) {
+            $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
                   ->orWhere('company', 'like', "%{$search}%")
@@ -21,11 +21,16 @@ class JobController extends Controller
             });
         }
 
-        // Apply additional filters (level, type, track) if provided
-        foreach (['level', 'type', 'track'] as $filter) {
-            if ($value = $request->$filter && $value !== 'all') {
-                $query->where($filter, $value);
-            }
+        if ($request->has('level') && $request->level !== 'all') {
+            $query->where('level', $request->level);
+        }
+
+        if ($request->has('type') && $request->type !== 'all') {
+            $query->where('type', $request->type);
+        }
+
+        if ($request->has('track') && $request->track !== 'all') {
+            $query->where('track', $request->track);
         }
 
         return response()->json($query->latest()->get());
@@ -33,7 +38,8 @@ class JobController extends Controller
 
     public function show($id)
     {
-        return response()->json(Job::findOrFail($id));
+        $job = Job::findOrFail($id);
+        return response()->json($job);
     }
 
     public function store(Request $request)
@@ -43,7 +49,8 @@ class JobController extends Controller
             'company' => 'required|string|max:255',
         ]);
 
-        return response()->json(Job::create($request->all()), 201);
+        $job = Job::create($request->all());
+        return response()->json($job, 201);
     }
 
     public function update(Request $request, $id)
